@@ -1,5 +1,6 @@
 import { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import { addToCartWorkflow } from "@medusajs/core-flows"
+import { Modules } from "@medusajs/framework/utils"
 
 export const POST = async (req: MedusaRequest, res: MedusaResponse) => {
     const cartId = req.params.id
@@ -44,6 +45,46 @@ export const POST = async (req: MedusaRequest, res: MedusaResponse) => {
 
     const lineItemTitle = `Lackierschablone (${width}x${height}cm) | ${font} | ${executionType} | "${cleanText}..."`
 
+    let productionFileUrl = production_file
+
+    // Handle File Upload if production_file is a data URL
+    if (production_file && production_file.startsWith("data:")) {
+        try {
+            const fileService = req.scope.resolve(Modules.FILE)
+            
+            // Extract MIME type and base64 content
+            const matches = production_file.match(/^data:([^;]+);base64,(.+)$/)
+            if (matches && matches.length === 3) {
+                const mimeType = matches[1]
+                const base64Data = matches[2]
+                const buffer = Buffer.from(base64Data, 'base64')
+                
+                // Determine extension
+                let extension = '.png'
+                if (mimeType === 'image/svg+xml') extension = '.svg'
+                else if (mimeType === 'image/jpeg') extension = '.jpg'
+                else if (mimeType === 'application/pdf') extension = '.pdf'
+                
+                const filename = `production-file-${Date.now()}${extension}`
+                
+                // Medusa 2.0 uses createFiles for module-level uploads
+                // We cast the whole input as any to ensure the minio-file provider 
+                // receives the fields it expects (filename, content, mimeType)
+                const uploadedFiles: any = await fileService.createFiles({
+                    filename,
+                    mimeType,
+                    content: buffer
+                } as any)
+                
+                if (uploadedFiles && uploadedFiles.length > 0) {
+                    productionFileUrl = uploadedFiles[0].url
+                }
+            }
+        } catch (uploadError) {
+            console.error("File Upload Error (ignoring and using base64 as fallback):", uploadError)
+        }
+    }
+
     try {
         // We use the Medusa V2 addToCart workflow, overriding the unit_price directly
         await addToCartWorkflow(req.scope).run({
@@ -57,7 +98,7 @@ export const POST = async (req: MedusaRequest, res: MedusaResponse) => {
                         title: lineItemTitle,
                         metadata: {
                             ...metadata,
-                            ...(production_file ? { production_file } : {})
+                            ...(productionFileUrl ? { production_file: productionFileUrl } : {})
                         }
                     }
                 ]
