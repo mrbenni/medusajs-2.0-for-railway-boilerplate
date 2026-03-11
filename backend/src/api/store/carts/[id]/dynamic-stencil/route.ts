@@ -67,19 +67,20 @@ export const POST = async (req: MedusaRequest, res: MedusaResponse) => {
                 
                 const filename = `production-file-${Date.now()}${extension}`
                 
-                // Medusa 2.0 uses createFiles for module-level uploads
-                // We cast the whole input as any to ensure the minio-file provider 
-                // receives the fields it expects (filename, content, mimeType)
-                const uploadedFiles: any = await fileService.createFiles({
+                // Medusa 2.0 createFiles returns an array when passed an array
+                const uploadedFiles = await fileService.createFiles([{
                     filename,
                     mimeType,
                     content: buffer
-                } as any)
+                } as any])
                 
-                if (uploadedFiles && uploadedFiles.length > 0) {
+                if (Array.isArray(uploadedFiles) && uploadedFiles.length > 0) {
                     productionFileUrl = uploadedFiles[0].url
+                } else if ((uploadedFiles as any)?.url) {
+                    // Fallback for single object return
+                    productionFileUrl = (uploadedFiles as any).url
                 } else {
-                    throw new Error("File upload to bucket failed - no URL returned")
+                    throw new Error("File upload to bucket failed - no URL in result")
                 }
             }
         } catch (uploadError: any) {
