@@ -78,14 +78,22 @@ export const POST = async (req: MedusaRequest, res: MedusaResponse) => {
                 
                 if (uploadedFiles && uploadedFiles.length > 0) {
                     productionFileUrl = uploadedFiles[0].url
+                } else {
+                    throw new Error("File upload to bucket failed - no URL returned")
                 }
             }
-        } catch (uploadError) {
-            console.error("File Upload Error (ignoring and using base64 as fallback):", uploadError)
+        } catch (uploadError: any) {
+            console.error("CRITICAL: File Upload to Bucket failed:", uploadError)
+            return res.status(500).json({ message: "Upload to bucket failed: " + uploadError.message })
         }
     }
 
     try {
+        // Prepare metadata: remove potential existing production_file from incoming metadata 
+        // to prevent it from overriding our clean URL during the spread (...)
+        const cleanMetadata = { ...metadata }
+        delete cleanMetadata.production_file
+
         // We use the Medusa V2 addToCart workflow, overriding the unit_price directly
         await addToCartWorkflow(req.scope).run({
             input: {
@@ -97,8 +105,8 @@ export const POST = async (req: MedusaRequest, res: MedusaResponse) => {
                         unit_price: finalPriceEur,
                         title: lineItemTitle,
                         metadata: {
-                            ...metadata,
-                            ...(productionFileUrl ? { production_file: productionFileUrl } : {})
+                            ...cleanMetadata,
+                            production_file: productionFileUrl // This is now ALWAYS the URL or undefined
                         }
                     }
                 ]
